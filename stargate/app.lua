@@ -12,6 +12,7 @@ local ADDR_PATH = DATA_DIR .. "/addresses.json"
 local defaultConfig = {
   whitelistEnabled = true,
   terminateIncoming = false,
+  incomingOverride = false,
   irisLock = false,
   alarmLatched = false,
   alarmSide = "bottom",
@@ -146,7 +147,7 @@ local function isIncomingNow()
 end
 
 local function canOpenIris()
-  if isIncomingNow() and not incomingOpenAllowed() then
+  if isIncomingNow() and (not config.incomingOverride or not incomingOpenAllowed()) then
     return false
   end
   return true
@@ -154,7 +155,11 @@ end
 
 local function manualOpenIris()
   if not canOpenIris() then
-    setMessage("Incoming: top signal required", 4)
+    if isIncomingNow() and not config.incomingOverride then
+      setMessage("Incoming override is off", 4)
+    else
+      setMessage("Incoming: top signal required", 4)
+    end
     return
   end
   safeCall(interface.openIris)
@@ -389,6 +394,12 @@ local function toggleTerminateIncoming()
   setMessage("Terminate incoming " .. (config.terminateIncoming and "enabled" or "disabled"), 3)
 end
 
+local function toggleIncomingOverride()
+  config.incomingOverride = not config.incomingOverride
+  saveConfig()
+  setMessage("Incoming override " .. (config.incomingOverride and "enabled" or "disabled"), 3)
+end
+
 local function toggleAlarmLatched()
   config.alarmLatched = not config.alarmLatched
   saveConfig()
@@ -575,7 +586,8 @@ local function drawStatus()
   line("Iris", tostring(state.status.irisPercent) .. "%", state.status.irisPercent == 100 and theme.danger or theme.text)
   line("Mode", state.irisManualOpen and "MAN" or "AUTO", state.irisManualOpen and theme.accent2 or theme.muted)
   line("Lock", config.irisLock and "ON" or "OFF", config.irisLock and theme.accent2 or theme.muted)
-  line("Override", state.status.topSignal and "ON" or "OFF", state.status.topSignal and theme.accent2 or theme.muted)
+  line("Incoming", config.incomingOverride and "ALLOW" or "BLOCK", config.incomingOverride and theme.accent2 or theme.muted)
+  line("TopSig", state.status.topSignal and "ON" or "OFF", state.status.topSignal and theme.accent2 or theme.muted)
   line("Chevrons", state.status.chevrons, theme.text)
   line("Alarm", state.alarmActive and "ON" or "OFF", state.alarmActive and theme.danger or theme.muted)
   local filterText = "OFF"
@@ -760,33 +772,38 @@ local function drawSettings()
       toggleWhitelistEnabled()
     end
   })
-  drawButton("set_iris_lock", bx, by + (bh + gap), bw, bh, "Iris Lock: " .. (config.irisLock and "ON" or "OFF"), {
+  drawButton("set_incoming_override", bx, by + (bh + gap), bw, bh, "Incoming: " .. (config.incomingOverride and "ALLOW" or "BLOCK"), {
+    onClick = function()
+      toggleIncomingOverride()
+    end
+  })
+  drawButton("set_iris_lock", bx, by + (bh + gap) * 2, bw, bh, "Iris Lock: " .. (config.irisLock and "ON" or "OFF"), {
     onClick = function()
       toggleIrisLock()
     end
   })
-  drawButton("set_terminate", bx, by + (bh + gap) * 2, bw, bh, "Terminate In: " .. (config.terminateIncoming and "ON" or "OFF"), {
+  drawButton("set_terminate", bx, by + (bh + gap) * 3, bw, bh, "Terminate In: " .. (config.terminateIncoming and "ON" or "OFF"), {
     onClick = function()
       toggleTerminateIncoming()
     end
   })
-  drawButton("set_latch", bx, by + (bh + gap) * 3, bw, bh, "Alarm Latch: " .. (config.alarmLatched and "ON" or "OFF"), {
+  drawButton("set_latch", bx, by + (bh + gap) * 4, bw, bh, "Alarm Latch: " .. (config.alarmLatched and "ON" or "OFF"), {
     onClick = function()
       toggleAlarmLatched()
     end
   })
-  drawButton("set_alarm_side", bx, by + (bh + gap) * 4, bw, bh, "Alarm Side: " .. config.alarmSide, {
+  drawButton("set_alarm_side", bx, by + (bh + gap) * 5, bw, bh, "Alarm Side: " .. config.alarmSide, {
     onClick = function()
       cycleAlarmSide()
     end
   })
-  drawButton("set_apply", bx, by + (bh + gap) * 5, bw, bh, "Apply Whitelist", {
+  drawButton("set_apply", bx, by + (bh + gap) * 6, bw, bh, "Apply Whitelist", {
     onClick = function()
       applyWhitelist()
       setMessage("Whitelist applied", 2)
     end
   })
-  drawButton("set_reset_alarm", bx, by + (bh + gap) * 6, bw, bh, "Reset Alarm", {
+  drawButton("set_reset_alarm", bx, by + (bh + gap) * 7, bw, bh, "Reset Alarm", {
     onClick = function()
       resetAlarm()
       setMessage("Alarm reset", 2)
@@ -1083,17 +1100,24 @@ local function securityLoop()
       end
     end
     if connected and not dialingOut then
-      if not incomingOpenAllowed() then
+      if not config.incomingOverride then
         autoCloseIris(true)
         safeCall(interface.disconnectStargate)
         if not state.incomingBlocked then
-          setMessage("Incoming rejected (override off)", 4)
+          setMessage("Incoming blocked (menu override off)", 4)
           state.incomingBlocked = true
         end
       else
         state.incomingBlocked = false
         if config.terminateIncoming then
           safeCall(interface.disconnectStargate)
+        elseif incomingOpenAllowed() then
+          safeCall(interface.openIris)
+          if not config.irisLock then
+            state.irisManualOpen = false
+          end
+        else
+          autoCloseIris(true)
         end
       end
     else

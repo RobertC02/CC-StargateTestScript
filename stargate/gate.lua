@@ -79,6 +79,12 @@ function M.new(ctx)
       return false
     end
 
+    if not (config.irisLock and state.irisManualOpen) then
+      util.safeCall(interface.closeIris)
+      if not config.irisLock then
+        state.irisManualOpen = false
+      end
+    end
     local dial = util.buildDialAddress(entry.address)
     for i = 1, #dial do
       local ok = pcall(interface.engageSymbol, dial[i])
@@ -92,6 +98,10 @@ function M.new(ctx)
     local timeout = os.clock() + 30
     while os.clock() < timeout do
       if util.safeCall(interface.isWormholeOpen) then
+        util.safeCall(interface.openIris)
+        if not config.irisLock then
+          state.irisManualOpen = false
+        end
         return true
       end
       if not util.safeCall(interface.isStargateConnected) and (util.safeCall(interface.getChevronsEngaged) or 0) == 0 then

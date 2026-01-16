@@ -40,6 +40,9 @@ function M.normalizeConfig(cfg, defaultConfig, validSides)
   if type(cfg.terminateIncoming) ~= "boolean" then
     cfg.terminateIncoming = defaultConfig.terminateIncoming
   end
+  if type(cfg.incomingOverride) ~= "boolean" then
+    cfg.incomingOverride = defaultConfig.incomingOverride
+  end
   if type(cfg.irisLock) ~= "boolean" then
     cfg.irisLock = defaultConfig.irisLock
   end
