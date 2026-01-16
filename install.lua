@@ -32,6 +32,7 @@ local function download(url, path)
   ensureDir(path)
   local ok = shell.run("wget", url, path)
   if not ok then
+    error("Failed to download: " .. url)
   end
 end
 
