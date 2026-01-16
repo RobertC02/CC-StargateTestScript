@@ -1,0 +1,6 @@
+{
+  "files": [
+    { "source": "stargate.lua", "dest": "stargate.lua" },
+    { "source": "stargate/update.lua", "dest": "stargate/update.lua" }
+  ]
+}
