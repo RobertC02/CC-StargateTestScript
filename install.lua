@@ -1,4 +1,4 @@
-local DEFAULT_BASE_URL = "https://raw.githubusercontent.com/USER/REPO/main"
+local DEFAULT_BASE_URL = "https://raw.githubusercontent.com/RobertC02/CC-StargateTestScript/main"
 local MANIFEST_PATH = "manifest.json"
 local TEMP_MANIFEST = "stargate/.manifest.tmp"
 
