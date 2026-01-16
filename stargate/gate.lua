@@ -47,6 +47,7 @@ function M.new(ctx)
     state.status.connected = util.safeCall(interface.isStargateConnected) or false
     state.status.dialingOut = util.safeCall(interface.isStargateDialingOut) or false
     state.status.wormholeOpen = util.safeCall(interface.isWormholeOpen) or false
+    state.status.topSignal = redstone.getInput("top") == true
     local iris = util.safeCall(interface.getIrisProgressPercentage) or 0
     state.status.irisPercent = math.floor(iris + 0.5)
     state.status.chevrons = util.safeCall(interface.getChevronsEngaged) or 0
@@ -78,7 +79,6 @@ function M.new(ctx)
       return false
     end
 
-    util.safeCall(interface.closeIris)
     local dial = util.buildDialAddress(entry.address)
     for i = 1, #dial do
       local ok = pcall(interface.engageSymbol, dial[i])
@@ -92,7 +92,6 @@ function M.new(ctx)
     local timeout = os.clock() + 30
     while os.clock() < timeout do
       if util.safeCall(interface.isWormholeOpen) then
-        util.safeCall(interface.openIris)
         return true
       end
       if not util.safeCall(interface.isStargateConnected) and (util.safeCall(interface.getChevronsEngaged) or 0) == 0 then

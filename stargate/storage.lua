@@ -40,6 +40,9 @@ function M.normalizeConfig(cfg, defaultConfig, validSides)
   if type(cfg.terminateIncoming) ~= "boolean" then
     cfg.terminateIncoming = defaultConfig.terminateIncoming
   end
+  if type(cfg.irisLock) ~= "boolean" then
+    cfg.irisLock = defaultConfig.irisLock
+  end
   if type(cfg.alarmLatched) ~= "boolean" then
     cfg.alarmLatched = defaultConfig.alarmLatched
   end

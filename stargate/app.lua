@@ -12,6 +12,7 @@ local ADDR_PATH = DATA_DIR .. "/addresses.json"
 local defaultConfig = {
   whitelistEnabled = true,
   terminateIncoming = false,
+  irisLock = false,
   alarmLatched = false,
   alarmSide = "bottom",
   textScale = 0.5
@@ -90,6 +91,8 @@ local state = {
   dialRequest = nil,
   dialing = false,
   alarmActive = false,
+  irisManualOpen = false,
+  incomingBlocked = false,
   deleteConfirmIndex = nil,
   edit = nil,
   nameBuffer = "",
@@ -100,6 +103,7 @@ local state = {
     irisPercent = 0,
     chevrons = 0,
     filterType = 0,
+    topSignal = false,
     connectedAddressStr = "-",
     localAddressStr = "-"
   }
@@ -120,7 +124,6 @@ local gate = gateModule.new({
   util = util
 })
 
-local clamp = util.clamp
 local safeCall = util.safeCall
 local addressToString = util.addressToString
 
@@ -129,6 +132,50 @@ local setAlarm = gate.setAlarm
 local resetAlarm = gate.resetAlarm
 local updateStatus = gate.updateStatus
 local dialAddress = gate.dialAddress
+
+local function incomingOpenAllowed()
+  return redstone.getInput("top") == true
+end
+
+local function isIncomingNow()
+  local connected = safeCall(interface.isStargateConnected)
+  if not connected then
+    return false
+  end
+  return not safeCall(interface.isStargateDialingOut)
+end
+
+local function canOpenIris()
+  if isIncomingNow() and not incomingOpenAllowed() then
+    return false
+  end
+  return true
+end
+
+local function manualOpenIris()
+  if not canOpenIris() then
+    setMessage("Incoming: top signal required", 4)
+    return
+  end
+  safeCall(interface.openIris)
+  state.irisManualOpen = true
+  setMessage("Iris opening", 2)
+end
+
+local function manualCloseIris()
+  safeCall(interface.closeIris)
+  state.irisManualOpen = false
+  setMessage("Iris closing", 2)
+end
+
+local function autoCloseIris(force)
+  if force or not (config.irisLock and state.irisManualOpen) then
+    safeCall(interface.closeIris)
+  end
+  if force or not config.irisLock then
+    state.irisManualOpen = false
+  end
+end
 
 do
   local localAddr = safeCall(interface.getLocalAddress)
@@ -199,7 +246,7 @@ local function startEdit(index)
   state.edit = {
     index = index,
     entry = entry,
-    symbol = 1
+    symbolBuffer = ""
   }
   state.page = "edit"
 end
@@ -260,6 +307,56 @@ local function cancelNameInput()
   state.page = "edit"
 end
 
+local function inputSymbolDigit(digit)
+  if not state.edit then
+    return
+  end
+  local buffer = state.edit.symbolBuffer or ""
+  if #buffer >= 2 then
+    return
+  end
+  if digit == 0 and #buffer == 0 then
+    return
+  end
+  state.edit.symbolBuffer = buffer .. tostring(digit)
+end
+
+local function deleteSymbolDigit()
+  if not state.edit then
+    return
+  end
+  local buffer = state.edit.symbolBuffer or ""
+  state.edit.symbolBuffer = buffer:sub(1, math.max(0, #buffer - 1))
+end
+
+local function clearSymbolBuffer()
+  if state.edit then
+    state.edit.symbolBuffer = ""
+  end
+end
+
+local function addSymbolFromBuffer()
+  if not state.edit then
+    return
+  end
+  local buffer = state.edit.symbolBuffer or ""
+  if buffer == "" then
+    setMessage("Enter a symbol", 3)
+    return
+  end
+  local value = tonumber(buffer)
+  if not value or value < 1 or value > 38 then
+    setMessage("Symbol must be 1-38", 3)
+    return
+  end
+  if #state.edit.entry.address >= 8 then
+    setMessage("Max 8 symbols", 3)
+    return
+  end
+  state.edit.entry.address[#state.edit.entry.address + 1] = value
+  state.edit.symbolBuffer = ""
+end
+
 local function dialSelected()
   if state.dialRequest or state.dialing then
     setMessage("Dialer busy", 3)
@@ -278,6 +375,12 @@ local function toggleWhitelistEnabled()
   saveConfig()
   applyWhitelist()
   setMessage("Whitelist " .. (config.whitelistEnabled and "enabled" or "disabled"), 3)
+end
+
+local function toggleIrisLock()
+  config.irisLock = not config.irisLock
+  saveConfig()
+  setMessage("Iris lock " .. (config.irisLock and "enabled" or "disabled"), 3)
 end
 
 local function toggleTerminateIncoming()
@@ -470,6 +573,9 @@ local function drawStatus()
   line("Dir", dir, state.status.dialingOut and theme.accent2 or theme.warn)
   line("Wormhole", state.status.wormholeOpen and "OPEN" or "CLOSED", state.status.wormholeOpen and theme.accent2 or theme.muted)
   line("Iris", tostring(state.status.irisPercent) .. "%", state.status.irisPercent == 100 and theme.danger or theme.text)
+  line("Mode", state.irisManualOpen and "MAN" or "AUTO", state.irisManualOpen and theme.accent2 or theme.muted)
+  line("Lock", config.irisLock and "ON" or "OFF", config.irisLock and theme.accent2 or theme.muted)
+  line("Override", state.status.topSignal and "ON" or "OFF", state.status.topSignal and theme.accent2 or theme.muted)
   line("Chevrons", state.status.chevrons, theme.text)
   line("Alarm", state.alarmActive and "ON" or "OFF", state.alarmActive and theme.danger or theme.muted)
   local filterText = "OFF"
@@ -495,14 +601,12 @@ local function drawHome()
 
   drawButton("open_iris", bx, by, bw, bh, "Open Iris", {
     onClick = function()
-      safeCall(interface.openIris)
-      setMessage("Iris opening", 2)
+      manualOpenIris()
     end
   })
   drawButton("close_iris", bx + bw + gap, by, bw, bh, "Close Iris", {
     onClick = function()
-      safeCall(interface.closeIris)
-      setMessage("Iris closing", 2)
+      manualCloseIris()
     end
   })
   drawButton("disconnect", bx + (bw + gap) * 2, by, bw, bh, "Disconnect", {
@@ -656,28 +760,33 @@ local function drawSettings()
       toggleWhitelistEnabled()
     end
   })
-  drawButton("set_terminate", bx, by + (bh + gap), bw, bh, "Terminate In: " .. (config.terminateIncoming and "ON" or "OFF"), {
+  drawButton("set_iris_lock", bx, by + (bh + gap), bw, bh, "Iris Lock: " .. (config.irisLock and "ON" or "OFF"), {
+    onClick = function()
+      toggleIrisLock()
+    end
+  })
+  drawButton("set_terminate", bx, by + (bh + gap) * 2, bw, bh, "Terminate In: " .. (config.terminateIncoming and "ON" or "OFF"), {
     onClick = function()
       toggleTerminateIncoming()
     end
   })
-  drawButton("set_latch", bx, by + (bh + gap) * 2, bw, bh, "Alarm Latch: " .. (config.alarmLatched and "ON" or "OFF"), {
+  drawButton("set_latch", bx, by + (bh + gap) * 3, bw, bh, "Alarm Latch: " .. (config.alarmLatched and "ON" or "OFF"), {
     onClick = function()
       toggleAlarmLatched()
     end
   })
-  drawButton("set_alarm_side", bx, by + (bh + gap) * 3, bw, bh, "Alarm Side: " .. config.alarmSide, {
+  drawButton("set_alarm_side", bx, by + (bh + gap) * 4, bw, bh, "Alarm Side: " .. config.alarmSide, {
     onClick = function()
       cycleAlarmSide()
     end
   })
-  drawButton("set_apply", bx, by + (bh + gap) * 4, bw, bh, "Apply Whitelist", {
+  drawButton("set_apply", bx, by + (bh + gap) * 5, bw, bh, "Apply Whitelist", {
     onClick = function()
       applyWhitelist()
       setMessage("Whitelist applied", 2)
     end
   })
-  drawButton("set_reset_alarm", bx, by + (bh + gap) * 5, bw, bh, "Reset Alarm", {
+  drawButton("set_reset_alarm", bx, by + (bh + gap) * 6, bw, bh, "Reset Alarm", {
     onClick = function()
       resetAlarm()
       setMessage("Alarm reset", 2)
@@ -722,50 +831,60 @@ local function drawEdit()
   })
 
   local controlsY = layout.mainY + 11
-  writeAt(x, controlsY, "Symbol: " .. tostring(state.edit.symbol), theme.text, theme.bg)
-  local btnY = controlsY + 1
+  local buffer = state.edit.symbolBuffer or ""
+  local bufferText = buffer == "" and "-" or buffer
+  writeAt(x, controlsY, "Input: " .. bufferText, theme.text, theme.bg)
+
   local btnW = 6
   local btnH = 3
   local gap = 1
-  drawButton("sym_minus5", x, btnY, btnW, btnH, "-5", {
+  local gridX = x
+  local gridY = controlsY + 1
+
+  local function digitButton(label, col, row, digit)
+    drawButton("sym_digit_" .. label, gridX + col * (btnW + gap), gridY + row * (btnH + gap), btnW, btnH, label, {
+      onClick = function()
+        inputSymbolDigit(digit)
+      end
+    })
+  end
+
+  digitButton("1", 0, 0, 1)
+  digitButton("2", 1, 0, 2)
+  digitButton("3", 2, 0, 3)
+  digitButton("4", 0, 1, 4)
+  digitButton("5", 1, 1, 5)
+  digitButton("6", 2, 1, 6)
+  digitButton("7", 0, 2, 7)
+  digitButton("8", 1, 2, 8)
+  digitButton("9", 2, 2, 9)
+  drawButton("sym_del", gridX, gridY + (btnH + gap) * 3, btnW, btnH, "Del", {
     onClick = function()
-      state.edit.symbol = clamp(state.edit.symbol - 5, 1, 38)
+      deleteSymbolDigit()
     end
   })
-  drawButton("sym_minus1", x + (btnW + gap), btnY, btnW, btnH, "-1", {
+  digitButton("0", 1, 3, 0)
+  drawButton("sym_buf_clear", gridX + (btnW + gap) * 2, gridY + (btnH + gap) * 3, btnW, btnH, "Clr", {
     onClick = function()
-      state.edit.symbol = clamp(state.edit.symbol - 1, 1, 38)
-    end
-  })
-  drawButton("sym_plus1", x + (btnW + gap) * 2, btnY, btnW, btnH, "+1", {
-    onClick = function()
-      state.edit.symbol = clamp(state.edit.symbol + 1, 1, 38)
-    end
-  })
-  drawButton("sym_plus5", x + (btnW + gap) * 3, btnY, btnW, btnH, "+5", {
-    onClick = function()
-      state.edit.symbol = clamp(state.edit.symbol + 5, 1, 38)
+      clearSymbolBuffer()
     end
   })
 
-  local rowY = btnY + btnH + 1
-  drawButton("sym_add", x, rowY, 12, 3, "Add", {
+  local actionX = gridX + (btnW + gap) * 3 + 2
+  local actionW = 12
+  drawButton("sym_add", actionX, gridY, actionW, btnH, "Add", {
     onClick = function()
-      if #entry.address >= 8 then
-        setMessage("Max 8 symbols", 3)
-        return
-      end
-      entry.address[#entry.address + 1] = state.edit.symbol
+      addSymbolFromBuffer()
     end
   })
-  drawButton("sym_back", x + 13, rowY, 12, 3, "Back", {
+  drawButton("sym_back", actionX, gridY + (btnH + gap), actionW, btnH, "Pop", {
     onClick = function()
       if #entry.address > 0 then
         table.remove(entry.address)
       end
     end
   })
-  drawButton("sym_clear", x + 26, rowY, 12, 3, "Clear", {
+  drawButton("sym_clear", actionX, gridY + (btnH + gap) * 2, actionW, btnH, "AddrClr", {
     onClick = function()
       entry.address = {}
       state.edit.entry.address = entry.address
@@ -963,11 +1082,26 @@ local function securityLoop()
         setAlarm(true)
       end
     end
-    if connected and not dialingOut and config.terminateIncoming then
-      safeCall(interface.disconnectStargate)
+    if connected and not dialingOut then
+      if not incomingOpenAllowed() then
+        autoCloseIris(true)
+        safeCall(interface.disconnectStargate)
+        if not state.incomingBlocked then
+          setMessage("Incoming rejected (override off)", 4)
+          state.incomingBlocked = true
+        end
+      else
+        state.incomingBlocked = false
+        if config.terminateIncoming then
+          safeCall(interface.disconnectStargate)
+        end
+      end
+    else
+      state.incomingBlocked = false
     end
     if not connected and prevConnected then
       setAlarm(false, false)
+      autoCloseIris(false)
     end
     prevConnected = connected
     sleep(0.1)
