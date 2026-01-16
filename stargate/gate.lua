@@ -60,7 +60,34 @@ function M.new(ctx)
     end
   end
 
-  local function dialAddress(entry)
+  local function addressesEqual(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then
+      return false
+    end
+    if #a ~= #b then
+      return false
+    end
+    for i = 1, #a do
+      if a[i] ~= b[i] then
+        return false
+      end
+    end
+    return true
+  end
+
+  local function isAddressWhitelisted(address)
+    for _, entry in ipairs(addresses) do
+      if entry.whitelisted and addressesEqual(entry.address, address) then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function dialAddress(entry, opts)
+    opts = opts or {}
+    local allowUnlisted = opts.allowUnlisted or opts.tempWhitelist
+    local useTempWhitelist = opts.tempWhitelist == true
     if not entry or type(entry.address) ~= "table" then
       setMessage("Invalid address", 4)
       return false
@@ -70,13 +97,20 @@ function M.new(ctx)
       setMessage("Address length must be 6-8", 4)
       return false
     end
-    if config.whitelistEnabled and not entry.whitelisted then
+    if config.whitelistEnabled and not entry.whitelisted and not allowUnlisted then
       setMessage("Entry not whitelisted", 4)
       return false
     end
     if util.safeCall(interface.isStargateConnected) then
       setMessage("Stargate already connected", 4)
       return false
+    end
+
+    local tempAdded = false
+    if useTempWhitelist and config.whitelistEnabled and not entry.whitelisted and not isAddressWhitelisted(entry.address) then
+      if pcall(interface.addToWhitelist, entry.address) then
+        tempAdded = true
+      end
     end
 
     if not (config.irisLock and state.irisManualOpen) then
@@ -90,6 +124,9 @@ function M.new(ctx)
       local ok = pcall(interface.engageSymbol, dial[i])
       if not ok then
         setMessage("Dial failed at symbol " .. tostring(dial[i]), 5)
+        if tempAdded then
+          pcall(interface.removeFromWhitelist, entry.address)
+        end
         return false
       end
       sleep(0.5)
@@ -102,12 +139,18 @@ function M.new(ctx)
         if not config.irisLock then
           state.irisManualOpen = false
         end
+        if tempAdded then
+          pcall(interface.removeFromWhitelist, entry.address)
+        end
         return true
       end
       if not util.safeCall(interface.isStargateConnected) and (util.safeCall(interface.getChevronsEngaged) or 0) == 0 then
         break
       end
       sleep(0.1)
+    end
+    if tempAdded then
+      pcall(interface.removeFromWhitelist, entry.address)
     end
     setMessage("Dial timed out", 5)
     return false

@@ -375,6 +375,19 @@ local function dialSelected()
   setMessage("Dial queued", 2)
 end
 
+local function dialSelectedOnce()
+  if state.dialRequest or state.dialing then
+    setMessage("Dialer busy", 3)
+    return
+  end
+  if state.selectedIndex == 0 or not addresses[state.selectedIndex] then
+    setMessage("No address selected", 3)
+    return
+  end
+  state.dialRequest = { index = state.selectedIndex, tempWhitelist = true }
+  setMessage("Dial once queued", 2)
+end
+
 local function toggleWhitelistEnabled()
   config.whitelistEnabled = not config.whitelistEnabled
   saveConfig()
@@ -693,7 +706,7 @@ local function drawAddresses()
     end
   end
 
-  local buttonCount = 7
+  local buttonCount = 8
   local gap = 1
   local btnW = math.floor((layout.mainW - gap * (buttonCount - 1)) / buttonCount)
   local btnH = metrics.actionsH
@@ -726,6 +739,13 @@ local function drawAddresses()
     enabled = hasSelection and not state.dialing,
     onClick = function()
       dialSelected()
+    end
+  })
+  x = x + btnW + gap
+  drawButton("addr_dial_once", x, y, btnW, btnH, "DialOnce", {
+    enabled = hasSelection and not state.dialing,
+    onClick = function()
+      dialSelectedOnce()
     end
   })
   x = x + btnW + gap
@@ -1135,13 +1155,23 @@ end
 local function dialerLoop()
   while true do
     if state.dialRequest then
-      local index = state.dialRequest
+      local request = state.dialRequest
       state.dialRequest = nil
       state.dialing = true
-      setMessage("Dialing...", 3)
+      local index = request
+      local opts = nil
+      local message = "Dialing..."
+      if type(request) == "table" then
+        index = request.index
+        if request.tempWhitelist then
+          opts = { tempWhitelist = true }
+          message = "Dialing once..."
+        end
+      end
+      setMessage(message, 3)
       local entry = addresses[index]
       if entry then
-        dialAddress(entry)
+        dialAddress(entry, opts)
       else
         setMessage("No address selected", 3)
       end
