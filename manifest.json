@@ -1,6 +1,10 @@
 {
   "files": [
     { "source": "stargate.lua", "dest": "stargate.lua" },
+    { "source": "stargate/app.lua", "dest": "stargate/app.lua" },
+    { "source": "stargate/util.lua", "dest": "stargate/util.lua" },
+    { "source": "stargate/storage.lua", "dest": "stargate/storage.lua" },
+    { "source": "stargate/gate.lua", "dest": "stargate/gate.lua" },
     { "source": "stargate/update.lua", "dest": "stargate/update.lua" }
   ]
 }

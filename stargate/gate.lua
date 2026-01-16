@@ -1,0 +1,116 @@
+local M = {}
+
+function M.new(ctx)
+  local interface = ctx.interface
+  local config = ctx.config
+  local addresses = ctx.addresses
+  local state = ctx.state
+  local validSides = ctx.validSides
+  local setMessage = ctx.setMessage
+  local util = ctx.util
+
+  local function setAlarm(on, forceOff)
+    if not on and config.alarmLatched and not forceOff then
+      return
+    end
+    state.alarmActive = on
+    if validSides[config.alarmSide] then
+      redstone.setOutput(config.alarmSide, on)
+    end
+  end
+
+  local function resetAlarm()
+    setAlarm(false, true)
+  end
+
+  local function applyWhitelist()
+    local ok = pcall(interface.setFilterType, config.whitelistEnabled and 1 or 0)
+    if not ok then
+      setMessage("Failed to set filter type", 5)
+      return
+    end
+    if not config.whitelistEnabled then
+      return
+    end
+    pcall(interface.clearWhitelist)
+    for _, entry in ipairs(addresses) do
+      if entry.whitelisted and type(entry.address) == "table" then
+        local len = #entry.address
+        if len >= 6 and len <= 8 then
+          pcall(interface.addToWhitelist, entry.address)
+        end
+      end
+    end
+  end
+
+  local function updateStatus()
+    state.status.connected = util.safeCall(interface.isStargateConnected) or false
+    state.status.dialingOut = util.safeCall(interface.isStargateDialingOut) or false
+    state.status.wormholeOpen = util.safeCall(interface.isWormholeOpen) or false
+    local iris = util.safeCall(interface.getIrisProgressPercentage) or 0
+    state.status.irisPercent = math.floor(iris + 0.5)
+    state.status.chevrons = util.safeCall(interface.getChevronsEngaged) or 0
+    state.status.filterType = util.safeCall(interface.getFilterType) or 0
+    if state.status.wormholeOpen then
+      local addr = util.safeCall(interface.getConnectedAddress) or {}
+      state.status.connectedAddressStr = util.addressToString(addr)
+    else
+      state.status.connectedAddressStr = "-"
+    end
+  end
+
+  local function dialAddress(entry)
+    if not entry or type(entry.address) ~= "table" then
+      setMessage("Invalid address", 4)
+      return false
+    end
+    local len = #entry.address
+    if len < 6 or len > 8 then
+      setMessage("Address length must be 6-8", 4)
+      return false
+    end
+    if config.whitelistEnabled and not entry.whitelisted then
+      setMessage("Entry not whitelisted", 4)
+      return false
+    end
+    if util.safeCall(interface.isStargateConnected) then
+      setMessage("Stargate already connected", 4)
+      return false
+    end
+
+    util.safeCall(interface.closeIris)
+    local dial = util.buildDialAddress(entry.address)
+    for i = 1, #dial do
+      local ok = pcall(interface.engageSymbol, dial[i])
+      if not ok then
+        setMessage("Dial failed at symbol " .. tostring(dial[i]), 5)
+        return false
+      end
+      sleep(0.5)
+    end
+
+    local timeout = os.clock() + 30
+    while os.clock() < timeout do
+      if util.safeCall(interface.isWormholeOpen) then
+        util.safeCall(interface.openIris)
+        return true
+      end
+      if not util.safeCall(interface.isStargateConnected) and (util.safeCall(interface.getChevronsEngaged) or 0) == 0 then
+        break
+      end
+      sleep(0.1)
+    end
+    setMessage("Dial timed out", 5)
+    return false
+  end
+
+  return {
+    applyWhitelist = applyWhitelist,
+    dialAddress = dialAddress,
+    resetAlarm = resetAlarm,
+    setAlarm = setAlarm,
+    updateStatus = updateStatus
+  }
+end
+
+return M
