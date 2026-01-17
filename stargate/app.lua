@@ -19,6 +19,34 @@ local defaultConfig = {
   textScale = 0.5
 }
 
+local defaultAddresses = {
+  { name = "MW Overworld (IS)", address = { 27, 25, 4, 35, 10, 28 }, whitelisted = true },
+  { name = "MW Overworld (EG)", address = { 1, 35, 4, 31, 15, 30, 32 }, whitelisted = true },
+  { name = "MW Abydos (IS)", address = { 26, 6, 14, 31, 11, 29 }, whitelisted = true },
+  { name = "MW Abydos (EG)", address = { 1, 17, 2, 34, 26, 9, 33 }, whitelisted = true },
+  { name = "MW Chulak (IS)", address = { 8, 1, 22, 14, 36, 19 }, whitelisted = true },
+  { name = "MW Chulak (EG)", address = { 1, 9, 14, 21, 17, 3, 29 }, whitelisted = true },
+  { name = "MW Cavum Tenebrae (IS)", address = { 18, 7, 3, 36, 25, 15 }, whitelisted = true },
+  { name = "MW Cavum Tenebrae (EG)", address = { 1, 34, 12, 18, 7, 31, 6 }, whitelisted = true },
+  { name = "MW The Nether (IS)", address = { 27, 23, 4, 34, 12, 28 }, whitelisted = true },
+  { name = "MW The Nether (EG)", address = { 1, 35, 6, 31, 15, 28, 32 }, whitelisted = true },
+  { name = "MW Rima (IS)", address = { 33, 20, 10, 22, 3, 17 }, whitelisted = true },
+  { name = "MW Rima (EG)", address = { 1, 31, 21, 8, 19, 2, 9 }, whitelisted = true },
+  { name = "MW Unitas (IS)", address = { 2, 27, 8, 34, 24, 15 }, whitelisted = true },
+  { name = "MW Unitas (EG)", address = { 1, 12, 34, 24, 15, 8, 17 }, whitelisted = true },
+  { name = "MW Proxima Cen. Ad Astra (IS)", address = { 26, 20, 4, 36, 9, 27 }, whitelisted = true },
+  { name = "MW Proxima Cen. Ad Astra (EG)", address = { 1, 36, 28, 4, 6, 26, 22 }, whitelisted = true },
+  { name = "MW The End (IS)", address = { 13, 24, 2, 19, 3, 30 }, whitelisted = true },
+  { name = "PG The End (IS)", address = { 14, 30, 6, 13, 17, 23 }, whitelisted = true },
+  { name = "MW/PG The End (EG)", address = { 18, 24, 8, 16, 7, 35, 30 }, whitelisted = true },
+  { name = "PG Lantea (IS)", address = { 29, 5, 17, 34, 6, 12 }, whitelisted = true },
+  { name = "PG Lantea (EG)", address = { 18, 20, 1, 15, 14, 7, 19 }, whitelisted = true },
+  { name = "PG Athos (IS)", address = { 21, 14, 24, 1, 26, 28 }, whitelisted = true },
+  { name = "PG Athos (EG)", address = { 18, 21, 14, 24, 1, 26, 28 }, whitelisted = true },
+  { name = "ID Othala (IS, No dest)", address = { 1, 6, 13, 3, 35, 8 }, whitelisted = true },
+  { name = "ID Othala (EG, No dest)", address = { 10, 26, 22, 15, 32, 2, 8 }, whitelisted = true }
+}
+
 local validSides = {
   top = true,
   bottom = true,
@@ -30,7 +58,8 @@ local validSides = {
 
 storage.ensureDir(DATA_DIR)
 local config = storage.normalizeConfig(storage.loadJson(CONFIG_PATH, defaultConfig), defaultConfig, validSides)
-local addresses = storage.normalizeAddresses(storage.loadJson(ADDR_PATH, {}))
+local loadedAddresses = storage.loadJson(ADDR_PATH, nil)
+local addresses = storage.normalizeAddresses(loadedAddresses or defaultAddresses)
 
 local function saveConfig()
   storage.saveJson(CONFIG_PATH, DATA_DIR, config)
