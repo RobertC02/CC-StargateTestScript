@@ -59,7 +59,11 @@ local validSides = {
 storage.ensureDir(DATA_DIR)
 local config = storage.normalizeConfig(storage.loadJson(CONFIG_PATH, defaultConfig), defaultConfig, validSides)
 local loadedAddresses = storage.loadJson(ADDR_PATH, nil)
-local addresses = storage.normalizeAddresses(loadedAddresses or defaultAddresses)
+local addresses = storage.normalizeAddresses(loadedAddresses or {})
+if #addresses == 0 then
+  addresses = storage.normalizeAddresses(defaultAddresses)
+  storage.saveJson(ADDR_PATH, DATA_DIR, addresses)
+end
 
 local function saveConfig()
   storage.saveJson(CONFIG_PATH, DATA_DIR, config)
